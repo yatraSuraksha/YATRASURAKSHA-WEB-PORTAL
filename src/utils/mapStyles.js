@@ -92,8 +92,10 @@ export const mapStyles = [
     "elementType": "geometry",
     "stylers": [
       {
-        "color": "#d4f6ff",
-        weight: 0.2
+        "color": "#d4f6ff"
+      },
+      {
+        "weight": 0.2
       }
     ]
   },
@@ -165,7 +167,7 @@ export const mapStyles = [
     "elementType": "labels.text.fill",
     "stylers": [
       {
-        "color": "#ffb1b1ff"
+        "color": "#ffb1b1"
       }
     ]
   },
@@ -195,7 +197,7 @@ export const mapStyles = [
         "visibility": "off"
       }
     ]
-  },
+  }
 ];
 
 export default mapStyles;

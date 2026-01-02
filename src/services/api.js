@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://4.186.25.99:3000/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -84,17 +84,37 @@ export const trackingAPI = {
     return api.get('/tracking/devices/connected');
   },
 
-  // Get active alerts - Added for AlertsOverlay
+  // Get active alerts - FIXED: Using correct endpoint /alerts/active
   getAlerts: (params = {}) => {
-    const { page = 1, limit = 20, status = 'active' } = params;
-    return api.get('/tracking/alerts', { 
-      params: { page, limit, status } 
+    const { page = 1, limit = 20 } = params;
+    return api.get('/tracking/alerts/active', { 
+      params: { page, limit } 
     });
   },
 
-  // Dismiss/acknowledge alert - Added for AlertsOverlay
+  // Acknowledge/dismiss alert - FIXED: Using correct endpoint /alerts/acknowledge
   dismissAlert: (alertId) => {
-    return api.post(`/tracking/alerts/dismiss/${alertId}`);
+    return api.post(`/tracking/alerts/acknowledge/${alertId}`);
+  },
+
+  // Get all tourists with locations
+  getAllTouristsWithLocations: () => {
+    return api.get('/tracking/tourists/all');
+  },
+
+  // Get all current locations
+  getAllCurrentLocations: () => {
+    return api.get('/tracking/locations/all');
+  },
+
+  // Get inactive users
+  getInactiveUsers: () => {
+    return api.get('/tracking/inactive-users');
+  },
+
+  // Get tracking config
+  getConfig: () => {
+    return api.get('/tracking/config');
   }
 };
 
@@ -108,14 +128,27 @@ export const alertAPI = {
     });
   },
 
+  // Get emergency alerts
+  getEmergencyAlerts: (params = {}) => {
+    const { page = 1, limit = 20 } = params;
+    return api.get('/tracking/alerts/emergency', { 
+      params: { page, limit } 
+    });
+  },
+
   // Acknowledge an alert
   acknowledgeAlert: (alertId) => {
     return api.post(`/tracking/alerts/acknowledge/${alertId}`);
   },
 
-  // Create emergency alert
+  // Create emergency alert (requires touristId and coordinates)
   createEmergencyAlert: (data) => {
     return api.post('/tracking/alerts/emergency', data);
+  },
+
+  // Delete all alerts for a tourist
+  deleteAlertsForTourist: (touristId) => {
+    return api.delete(`/tracking/alerts/emergency/tourist/${touristId}`);
   }
 };
 

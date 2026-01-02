@@ -1,0 +1,107 @@
+/* Map Container Styles */
+.map-container {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+/* Loading Overlay */
+.map-container .loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.map-container .loading .spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e0e0e0;
+  border-top: 3px solid #1a73e8;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.map-container .loading span {
+  font-size: 14px;
+  color: #5f6368;
+  font-weight: 500;
+}
+
+/* Error State */
+.map-container .error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  background: #fff5f5;
+  color: #d32f2f;
+  text-align: center;
+}
+
+.map-container .error span:first-child {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.map-container .error button {
+  margin-top: 16px;
+  padding: 8px 24px;
+  background: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.map-container .error button:hover {
+  background: #1557b0;
+}
+
+/* Azure Maps specific overrides */
+.atlas-map {
+  border-radius: 12px;
+}
+
+/* Hide Azure logo if needed */
+.atlas-map .azure-map-logo {
+  display: none !important;
+}
+
+/* Custom popup styles */
+.atlas-popup-content {
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.atlas-popup-content h3 {
+  margin: 0 0 8px 0;
+  color: #1a73e8;
+  font-size: 14px;
+}
+
+.atlas-popup-content p {
+  margin: 4px 0;
+  font-size: 12px;
+  color: #5f6368;
+}

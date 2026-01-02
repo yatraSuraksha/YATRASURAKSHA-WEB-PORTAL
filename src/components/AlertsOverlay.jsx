@@ -18,7 +18,7 @@ const AlertsOverlay = () => {
       setIsLoading(true);
       // Using the tracking API to get alerts
       const response = await trackingAPI.getAlerts();
-      const alertsData = response.data.data.alerts || [];
+      const alertsData = response.data.data?.alerts || response.data?.alerts || [];
       
       // Filter for active/unresolved alerts
       const activeAlerts = alertsData.filter(alert => 
@@ -28,42 +28,8 @@ const AlertsOverlay = () => {
       setAlerts(activeAlerts);
     } catch (error) {
       console.error('Failed to load alerts:', error);
-      // Mock data for development
-      setAlerts([
-        {
-          id: 1,
-          type: 'emergency',
-          severity: 'high',
-          title: 'Emergency Alert',
-          message: 'Tourist reported emergency at Red Fort area',
-          location: 'Red Fort, Delhi',
-          timestamp: new Date().toISOString(),
-          touristId: 'T001',
-          status: 'active'
-        },
-        {
-          id: 2,
-          type: 'geofence',
-          severity: 'medium',
-          title: 'Geofence Violation',
-          message: 'Tourist left designated safe zone',
-          location: 'India Gate area',
-          timestamp: new Date(Date.now() - 300000).toISOString(),
-          touristId: 'T002',
-          status: 'active'
-        },
-        {
-          id: 3,
-          type: 'safety',
-          severity: 'low',
-          title: 'Safety Warning',
-          message: 'Low safety score detected in current area',
-          location: 'Chandni Chowk',
-          timestamp: new Date(Date.now() - 600000).toISOString(),
-          touristId: 'T003',
-          status: 'pending'
-        }
-      ]);
+      // No mock data - show empty state when API fails
+      setAlerts([]);
     } finally {
       setIsLoading(false);
     }
@@ -100,13 +66,13 @@ const AlertsOverlay = () => {
 
   const dismissAlert = async (alertId) => {
     try {
-      // Call API to dismiss alert
+      // Call API to acknowledge/dismiss alert
       await trackingAPI.dismissAlert(alertId);
-      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+      setAlerts(prev => prev.filter(alert => alert.id !== alertId && alert._id !== alertId && alert.alertId !== alertId));
     } catch (error) {
       console.error('Failed to dismiss alert:', error);
-      // For development, just remove from local state
-      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+      // Remove from local state anyway for better UX
+      setAlerts(prev => prev.filter(alert => alert.id !== alertId && alert._id !== alertId && alert.alertId !== alertId));
     }
   };
 

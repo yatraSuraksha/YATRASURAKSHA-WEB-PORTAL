@@ -1,14 +1,26 @@
-import { Loader } from '@googlemaps/js-api-loader';
-
 class GoogleMapsService {
   constructor() {
     this.isLoaded = false;
-    this.loader = null;
     this.google = null;
+    this.loadPromise = null;
   }
 
   async initialize() {
+    // Return cached promise if already loading
+    if (this.loadPromise) {
+      return this.loadPromise;
+    }
+
+    // Return if already loaded
     if (this.isLoaded && this.google) {
+      return this.google;
+    }
+
+    // Check if Google Maps is already loaded globally (from script tag)
+    if (window.google && window.google.maps) {
+      this.google = window.google;
+      this.isLoaded = true;
+      console.log('Google Maps API already loaded globally');
       return this.google;
     }
 
@@ -18,23 +30,40 @@ class GoogleMapsService {
       throw new Error('Google Maps API key not configured. Please set VITE_GOOGLE_MAPS_API_KEY in your .env file.');
     }
 
+    // Load via script tag (like production)
+    this.loadPromise = new Promise((resolve, reject) => {
+      // Check again in case it loaded while we were setting up
+      if (window.google && window.google.maps) {
+        this.google = window.google;
+        this.isLoaded = true;
+        resolve(this.google);
+        return;
+      }
 
-    try {
-      this.loader = new Loader({
-        apiKey: apiKey,
-        version: 'weekly',
-        libraries: ['places', 'geometry', 'drawing', 'visualization']
-      });
+      // Create callback function
+      const callbackName = 'googleMapsCallback_' + Date.now();
+      window[callbackName] = () => {
+        this.google = window.google;
+        this.isLoaded = true;
+        console.log('Google Maps API loaded successfully via script tag');
+        delete window[callbackName];
+        resolve(this.google);
+      };
 
-      this.google = await this.loader.load();
-      this.isLoaded = true;
-      
-      console.log('Google Maps API loaded successfully');
-      return this.google;
-    } catch (error) {
-      console.error('Error loading Google Maps API:', error);
-      throw error;
-    }
+      // Create script tag
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry,drawing,visualization&callback=${callbackName}`;
+      script.async = true;
+      script.defer = true;
+      script.onerror = () => {
+        delete window[callbackName];
+        reject(new Error('Failed to load Google Maps API script'));
+      };
+
+      document.head.appendChild(script);
+    });
+
+    return this.loadPromise;
   }
 
   isApiLoaded() {
@@ -47,5 +76,5 @@ class GoogleMapsService {
 }
 
 // Export singleton instance
-export const googleMapsService = new GoogleMapsService();
+const googleMapsService = new GoogleMapsService();
 export default googleMapsService;

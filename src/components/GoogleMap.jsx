@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import googleMapsService from '../services/googleMaps';
 import { trackingAPI, geofenceAPI } from '../services/api';
-import { mapStyles } from '../utils/mapStyles';
+import mapStyles from '../utils/mapStyles';
 
 const GoogleMap = ({ 
-  center = { lat: 28.6139, lng: 77.2090 }, 
+  center = { lat: 16.5062, lng: 80.6480 }, 
   zoom = 10,
   height = '600px',
   showTourists = true,

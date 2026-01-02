@@ -1,5 +1,5 @@
 import React from 'react';
-import SimpleGoogleMap from './components/SimpleGoogleMap';
+import AzureMap from './components/AzureMap';
 import AlertsOverlay from './components/AlertsOverlay';
 import './index.css';
 
@@ -14,13 +14,13 @@ const App = () => {
       overflow: 'hidden',
       position: 'relative'
     }}>
-      <SimpleGoogleMap 
+      <AzureMap 
         height="100vh"
         showTourists={true}
         showGeofences={true}
         showHeatmap={false}
-        center={{ lat: 28.6139, lng: 77.2090 }}
-        zoom={10}
+        center={{ lat: 16.5062, lng: 80.6480 }}
+        zoom={12}
       />
       <AlertsOverlay />
     </div>

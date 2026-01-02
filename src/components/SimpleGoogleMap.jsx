@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import googleMapsService from '../services/googleMaps';
-import mapStyles from '../utils/mapStyles.js';
+import mapStyles from '../utils/mapStyles';
 
 const GoogleMap = ({ 
   center = { lat: 16.5062, lng: 80.6480 }, // Default to Vijayawada
@@ -40,13 +40,21 @@ const GoogleMap = ({
 
       console.log('Google Maps API loaded, creating map...');
 
-      // Create map instance
+      // Create map instance with custom styles
       mapInstanceRef.current = new google.maps.Map(mapRef.current, {
         center: center,
         zoom: zoom,
         mapTypeId: google.maps.MapTypeId.ROADMAP,
         styles: mapStyles,
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        gestureHandling: 'greedy'
       });
+
+      console.log('Map styles applied:', mapStyles.length, 'rules');
 
       setDebugInfo('Map created successfully');
 
