@@ -1,7 +1,35 @@
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import azureMapsService from '../services/azureMaps';
-import { trackingAPI, geofenceAPI, alertAPI } from '../services/api';
+import { trackingAPI, geofenceAPI, alertAPI, safetyAPI } from '../services/api';
+import MapThemeSelector from './MapThemeSelector';
+import GeofenceManager from './GeofenceManager';
+import { getTheme, getMarkerColor, getGeofenceStyle } from '../utils/mapThemes';
 import '../styles/GoogleMap.css';
+
+// Safety level colors
+const SAFETY_COLORS = {
+  veryHigh: '#22c55e',   // Green - Very Safe (80-100)
+  high: '#84cc16',       // Lime - Safe (60-80)
+  moderate: '#eab308',   // Yellow - Moderate (40-60)
+  low: '#f97316',        // Orange - Low Safety (20-40)
+  veryLow: '#ef4444',    // Red - Dangerous (0-20)
+};
+
+const getSafetyColor = (score) => {
+  if (score >= 80) return SAFETY_COLORS.veryHigh;
+  if (score >= 60) return SAFETY_COLORS.high;
+  if (score >= 40) return SAFETY_COLORS.moderate;
+  if (score >= 20) return SAFETY_COLORS.low;
+  return SAFETY_COLORS.veryLow;
+};
+
+const getSafetyLabel = (score) => {
+  if (score >= 80) return 'Very Safe';
+  if (score >= 60) return 'Safe';
+  if (score >= 40) return 'Moderate';
+  if (score >= 20) return 'Low Safety';
+  return 'Dangerous';
+};
 
 const AzureMap = forwardRef(({ 
   center = { lat: 26.1445, lng: 91.7362 }, // Default to Guwahati, India
@@ -23,6 +51,18 @@ const AzureMap = forwardRef(({
   const [showTouristPanel, setShowTouristPanel] = useState(false);
   const [touristsData, setTouristsData] = useState([]);
   
+  // Safety overlay state
+  const [showSafetyOverlay, setShowSafetyOverlay] = useState(true); // Changed to true to enable by default
+  const [safetyData, setSafetyData] = useState([]);
+  const [safetyLoading, setSafetyLoading] = useState(false);
+  
+  // Geofence manager state - ADD THIS LINE
+  const [showGeofenceManager, setShowGeofenceManager] = useState(false);
+  
+  // Theme state
+  const [currentTheme, setCurrentTheme] = useState('default');
+  const [currentMapStyle, setCurrentMapStyle] = useState('grayscale_light');
+  
   // Store map objects for cleanup
   const touristSourceRef = useRef(null);
   const touristLayerRef = useRef(null);
@@ -34,6 +74,11 @@ const AzureMap = forwardRef(({
   const heatmapLayerRef = useRef(null);
   const popupRef = useRef(null);
   const markersRef = useRef([]);
+  
+  // Safety overlay refs
+  const safetySourceRef = useRef(null);
+  const safetyLayerRef = useRef(null);
+  const safetyPopupRef = useRef(null);
   
   // History tracking refs
   const historySourceRef = useRef(null);
@@ -88,8 +133,10 @@ const AzureMap = forwardRef(({
       if (showTourists) loadTourists();
       if (showGeofences) loadGeofences();
       if (showHeatmap) loadHeatmap();
+      // Load safety overlay by default since it's enabled
+      if (showSafetyOverlay) loadSafetyOverlay();
     }
-  }, [mapReady, showTourists, showGeofences, showHeatmap]);
+  }, [mapReady, showTourists, showGeofences, showHeatmap, showSafetyOverlay]);
 
   const initializeMap = async () => {
     try {
@@ -238,16 +285,31 @@ const AzureMap = forwardRef(({
       const geofencesData = response.data.data?.geofences || response.data?.geofences || [];
       
       // Transform API data to map format
-      const geofences = geofencesData.map(fence => ({
-        id: fence._id || fence.fenceId,
-        name: fence.name,
-        type: fence.type || 'safe',
-        center: {
-          lat: fence.center?.coordinates?.[1] || fence.center?.latitude,
-          lng: fence.center?.coordinates?.[0] || fence.center?.longitude
-        },
-        radius: fence.radius || 500
-      })).filter(f => f.center.lat && f.center.lng);
+      // API returns geometry.coordinates as [lng, lat] for Point type
+      const geofences = geofencesData.map(fence => {
+        let lat, lng;
+        
+        if (fence.geometry?.coordinates) {
+          // MongoDB GeoJSON Point format: [longitude, latitude]
+          lng = fence.geometry.coordinates[0];
+          lat = fence.geometry.coordinates[1];
+        } else if (fence.center?.coordinates) {
+          lng = fence.center.coordinates[0];
+          lat = fence.center.coordinates[1];
+        } else if (fence.center?.latitude && fence.center?.longitude) {
+          lat = fence.center.latitude;
+          lng = fence.center.longitude;
+        }
+        
+        return {
+          id: fence._id || fence.fenceId,
+          name: fence.name,
+          type: fence.type || 'safe',
+          center: { lat, lng },
+          radius: fence.radius || 500,
+          active: fence.isActive !== false
+        };
+      }).filter(f => f.center.lat && f.center.lng);
       
       if (geofences.length > 0) {
         displayGeofences(geofences);
@@ -327,6 +389,192 @@ const AzureMap = forwardRef(({
     }
   };
 
+  // Load and display safety scores on map
+  const loadSafetyOverlay = async () => {
+    try {
+      if (!mapInstanceRef.current || !window.atlas || !mapReady) {
+        console.log('Map not ready for safety overlay');
+        return;
+      }
+      
+      setSafetyLoading(true);
+      const atlas = window.atlas;
+      const map = mapInstanceRef.current;
+
+      // Clear existing safety layer if exists
+      if (safetyLayerRef.current) {
+        try { map.layers.remove(safetyLayerRef.current); } catch (e) { /* ignore */ }
+        safetyLayerRef.current = null;
+      }
+      if (safetySourceRef.current) {
+        try { map.sources.remove(safetySourceRef.current); } catch (e) { /* ignore */ }
+        safetySourceRef.current = null;
+      }
+
+      // Fetch safety data from API
+      const response = await safetyAPI.getAllForMap();
+      const locations = response.data?.data?.locations || response.data?.locations || [];
+      
+      console.log('Safety data loaded:', locations.length, 'locations');
+      setSafetyData(locations);
+
+      if (locations.length === 0) {
+        console.log('No safety data available');
+        setSafetyLoading(false);
+        return;
+      }
+
+      // Create safety data source
+      safetySourceRef.current = new atlas.source.DataSource('safetySource');
+      map.sources.add(safetySourceRef.current);
+
+      // Create popup for safety info
+      if (!safetyPopupRef.current) {
+        safetyPopupRef.current = new atlas.Popup({
+          pixelOffset: [0, -12],
+          closeButton: true
+        });
+      }
+
+      // Add features for each location
+      const features = locations.map(loc => {
+        const lng = loc.lng || loc.longitude;
+        const lat = loc.lat || loc.latitude;
+        
+        if (!lng || !lat) return null;
+
+        const score = loc.safetyScore || 0;
+        const color = getSafetyColor(score);
+        const label = getSafetyLabel(score);
+
+        return new atlas.data.Feature(
+          new atlas.data.Point([lng, lat]),
+          {
+            name: loc.name,
+            state: loc.state,
+            district: loc.district || '',
+            safetyScore: score,
+            riskLevel: loc.riskLevel || 'Unknown',
+            color: color,
+            safetyLabel: label
+          }
+        );
+      }).filter(Boolean);
+
+      safetySourceRef.current.add(features);
+
+      // Create bubble layer for safety dots
+      safetyLayerRef.current = new atlas.layer.BubbleLayer(safetySourceRef.current, 'safetyBubbleLayer', {
+        radius: [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          4, 6,
+          8, 10,
+          12, 14,
+          16, 18
+        ],
+        color: ['get', 'color'],
+        strokeColor: '#ffffff',
+        strokeWidth: 2,
+        opacity: 0.85,
+        minZoom: 3,
+        maxZoom: 20
+      });
+
+      map.layers.add(safetyLayerRef.current);
+
+      // Add click event for popup
+      map.events.add('click', safetyLayerRef.current, (e) => {
+        if (e.shapes && e.shapes.length > 0) {
+          const shape = e.shapes[0];
+          const properties = shape.getProperties();
+          const coordinates = shape.getCoordinates();
+
+          safetyPopupRef.current.setOptions({
+            content: `
+              <div style="padding: 12px; min-width: 200px; font-family: system-ui, -apple-system, sans-serif;">
+                <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: #1a1a1a;">${properties.name}</div>
+                <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                  ${properties.district ? properties.district + ', ' : ''}${properties.state}
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                  <div style="
+                    width: 48px; 
+                    height: 48px; 
+                    border-radius: 50%; 
+                    background: ${properties.color}; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    color: white; 
+                    font-weight: 700;
+                    font-size: 16px;
+                    box-shadow: 0 2px 8px ${properties.color}66;
+                  ">
+                    ${Math.round(properties.safetyScore)}
+                  </div>
+                  <div>
+                    <div style="font-weight: 600; font-size: 14px; color: ${properties.color};">
+                      ${properties.safetyLabel}
+                    </div>
+                    <div style="font-size: 11px; color: #888; margin-top: 2px;">
+                      Risk Level: ${properties.riskLevel}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `,
+            position: coordinates
+          });
+
+          safetyPopupRef.current.open(map);
+        }
+      });
+
+      // Add hover cursor change
+      map.events.add('mouseover', safetyLayerRef.current, () => {
+        map.getCanvasContainer().style.cursor = 'pointer';
+      });
+      map.events.add('mouseout', safetyLayerRef.current, () => {
+        map.getCanvasContainer().style.cursor = '';
+      });
+
+      console.log('Safety overlay displayed with', features.length, 'locations');
+      setSafetyLoading(false);
+    } catch (err) {
+      console.error('Failed to load safety overlay:', err);
+      setSafetyLoading(false);
+    }
+  };
+
+  // Toggle safety overlay visibility
+  const toggleSafetyOverlay = () => {
+    const newState = !showSafetyOverlay;
+    setShowSafetyOverlay(newState);
+    
+    if (newState) {
+      loadSafetyOverlay();
+    } else {
+      // Hide safety layer
+      if (safetyLayerRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.layers.remove(safetyLayerRef.current);
+          safetyLayerRef.current = null;
+        } catch (e) { /* ignore */ }
+      }
+      if (safetySourceRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.sources.remove(safetySourceRef.current);
+          safetySourceRef.current = null;
+        } catch (e) { /* ignore */ }
+      }
+      if (safetyPopupRef.current) {
+        safetyPopupRef.current.close();
+      }
+    }
+  };
+
   const displayTouristMarkers = (touristData) => {
     if (!mapInstanceRef.current || !window.atlas) return;
 
@@ -381,7 +629,6 @@ const AzureMap = forwardRef(({
                <div style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center; background: linear-gradient(135deg, ${statusColor}22, ${statusColor}44); border-radius: 50%;">
                  <svg width="24" height="24" viewBox="0 0 24 24" fill="${statusColor}">
                    <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z"/>
-                 </svg>
                </div>`
             : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, ${statusColor}22, ${statusColor}44); border-radius: 50%;">
                  <svg width="24" height="24" viewBox="0 0 24 24" fill="${statusColor}">
@@ -456,7 +703,8 @@ const AzureMap = forwardRef(({
       setShowTouristPanel(false);
       setSelectedTourist(null);
       
-      const response = await trackingAPI.getLocationHistory(touristId, { limit: 50, hours: 24 });
+      // Fetch all location history (limit: 0 means no limit)
+      const response = await trackingAPI.getLocationHistory(touristId, { limit: 0, hours: 720 });
       const historyData = response.data?.data || response.data;
       const locations = historyData?.locations || [];
       
@@ -549,7 +797,7 @@ const AzureMap = forwardRef(({
           font-size: 10px;
           font-weight: bold;
           cursor: pointer;
-        " title="${pointNumber}. ${time}${isStart ? ' (Start)' : isEnd ? ' (End)' : ''}">
+        " title="${pointNumber}. ${time}${isStart ? ' (Start)' : isEnd ? ' (Current)' : ''}">
           ${pointNumber}
         </div>
       `;
@@ -706,6 +954,38 @@ const AzureMap = forwardRef(({
     map.layers.add(geofenceBorderLayerRef.current);
   };
 
+  // Add geofence selection handler
+  const handleGeofenceSelect = (geofence) => {
+    if (!mapInstanceRef.current) return;
+    
+    // Support multiple coordinate formats from API:
+    // - geometry.coordinates: [lng, lat] (MongoDB GeoJSON format)
+    // - center.coordinates: [lng, lat]
+    // - center: { latitude, longitude }
+    let lat, lng;
+    
+    if (geofence.geometry?.coordinates) {
+      // MongoDB GeoJSON Point format: [longitude, latitude]
+      lng = geofence.geometry.coordinates[0];
+      lat = geofence.geometry.coordinates[1];
+    } else if (geofence.center?.coordinates) {
+      lng = geofence.center.coordinates[0];
+      lat = geofence.center.coordinates[1];
+    } else if (geofence.center?.latitude && geofence.center?.longitude) {
+      lat = geofence.center.latitude;
+      lng = geofence.center.longitude;
+    }
+    
+    if (lat && lng) {
+      mapInstanceRef.current.setCamera({
+        center: [lng, lat],
+        zoom: 14,
+        pitch: 45,
+        duration: 500
+      });
+    }
+  };
+
   const getTouristColor = (status) => {
     switch (status) {
       case 'safe': return '#4caf50';
@@ -783,6 +1063,27 @@ const AzureMap = forwardRef(({
         }} 
       />
 
+      {/* Map Theme Selector */}
+      {!isLoading && (
+        <MapThemeSelector
+          currentTheme={currentTheme}
+          currentMapStyle={currentMapStyle}
+          onThemeChange={(theme) => {
+            setCurrentTheme(theme);
+            // Optionally reload markers with new colors
+            if (showTourists && touristsData.length > 0) {
+              displayTouristMarkers(touristsData);
+            }
+          }}
+          onMapStyleChange={(style) => {
+            setCurrentMapStyle(style);
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setStyle({ style });
+            }
+          }}
+        />
+      )}
+
       {/* Tourist Count Badge */}
       {!isLoading && touristsData.length > 0 && (
         <div style={{
@@ -803,6 +1104,185 @@ const AzureMap = forwardRef(({
           <span style={{ fontWeight: '600', color: '#1a73e8' }}>{touristsData.length}</span>
           <span style={{ color: '#666', fontSize: '14px' }}>Tourists Active</span>
         </div>
+      )}
+
+      {/* Safety Overlay Toggle Button - Bottom Left */}
+      {!isLoading && (
+        <div style={{
+          position: 'absolute',
+          bottom: '24px',
+          left: '16px',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: '8px'
+        }}>
+          {/* Safety Legend - Above the button */}
+          {showSafetyOverlay && !safetyLoading && (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(10px)',
+              padding: '12px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              fontSize: '11px'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px', color: '#333' }}>
+                Safety Score Legend
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: SAFETY_COLORS.veryHigh 
+                  }}></span>
+                  <span>80-100: Very Safe</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: SAFETY_COLORS.high 
+                  }}></span>
+                  <span>60-80: Safe</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: SAFETY_COLORS.moderate 
+                  }}></span>
+                  <span>40-60: Moderate</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: SAFETY_COLORS.low 
+                  }}></span>
+                  <span>20-40: Low Safety</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: SAFETY_COLORS.veryLow 
+                  }}></span>
+                  <span>0-20: Dangerous</span>
+                </div>
+              </div>
+              {safetyData.length > 0 && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  paddingTop: '8px', 
+                  borderTop: '1px solid #eee',
+                  color: '#666'
+                }}>
+                  📍 {safetyData.length} locations loaded
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Toggle Switch */}
+          <div
+            onClick={toggleSafetyOverlay}
+            style={{
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(10px)',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              transition: 'all 0.3s ease',
+              userSelect: 'none'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+              <span style={{ fontSize: '18px' }}></span>
+              <span style={{ 
+                fontWeight: '600', 
+                color: '#333',
+                fontSize: '14px'
+              }}>
+                {safetyLoading ? 'Loading...' : 'Show Safety Overlay'}
+              </span>
+            </div>
+            {/* Toggle Switch */}
+            <div style={{
+              width: '44px',
+              height: '24px',
+              background: showSafetyOverlay 
+                ? 'linear-gradient(135deg, #22c55e, #16a34a)' 
+                : '#d1d5db',
+              borderRadius: '12px',
+              position: 'relative',
+              transition: 'all 0.3s ease',
+              boxShadow: showSafetyOverlay 
+                ? '0 2px 8px rgba(34, 197, 94, 0.3)' 
+                : '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              <div style={{
+                width: '20px',
+                height: '20px',
+                background: 'white',
+                borderRadius: '50%',
+                position: 'absolute',
+                top: '2px',
+                left: showSafetyOverlay ? '22px' : '2px',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+              }} />
+            </div>
+          </div>
+
+          {/* Geofence Manager Button */}
+          <button
+            onClick={() => setShowGeofenceManager(true)}
+            style={{
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(10px)',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              border: 'none',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            <span style={{ fontSize: '18px' }}>🗺️</span>
+            <span style={{ 
+              fontWeight: '600', 
+              color: '#333',
+              fontSize: '14px'
+            }}>
+              Geofences
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Geofence Manager Panel */}
+      {showGeofenceManager && (
+        <GeofenceManager
+          map={mapInstanceRef.current}
+          onGeofenceSelect={handleGeofenceSelect}
+          onGeofenceChange={loadGeofences}
+          onClose={() => setShowGeofenceManager(false)}
+        />
       )}
 
       {/* Tourist Details Panel - Centered Modal */}

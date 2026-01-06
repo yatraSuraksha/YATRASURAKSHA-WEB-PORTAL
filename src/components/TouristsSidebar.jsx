@@ -89,7 +89,9 @@ const TouristsSidebar = ({ onTouristSelect, onViewVideos }) => {
 
   const handleVideos = (tourist) => {
     if (onViewVideos) {
-      onViewVideos(tourist._id || tourist.id, tourist.name);
+      // Use firebaseUid for video lookup as videos are associated with Firebase user ID
+      const userId = tourist.firebaseUid || tourist._id || tourist.id;
+      onViewVideos(userId, tourist.name);
     }
   };
 

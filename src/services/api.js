@@ -162,6 +162,11 @@ export const geofenceAPI = {
     });
   },
 
+  // Get geofence stats
+  getStats: () => {
+    return api.get('/tracking/geofences/stats');
+  },
+
   // Create new geofence
   create: (geofenceData) => {
     return api.post('/tracking/geofences', geofenceData);
@@ -195,6 +200,88 @@ export const ocrAPI = {
   // Check OCR service health
   getHealth: () => {
     return api.get('/ocr/health');
+  }
+};
+
+// Video Management APIs
+export const videoAPI = {
+  // Get all videos (admin view)
+  getAll: (params = {}) => {
+    const { page = 1, limit = 50 } = params;
+    return api.get('/videos', { params: { page, limit } });
+  },
+
+  // Get videos for a specific user/tourist
+  getByUser: (userId, params = {}) => {
+    const { page = 1, limit = 20 } = params;
+    return api.get(`/videos/user/${userId}`, { params: { page, limit } });
+  },
+
+  // Get video statistics
+  getStats: () => {
+    return api.get('/videos/stats');
+  },
+
+  // Get video info
+  getInfo: (filename) => {
+    return api.get(`/videos/info/${filename}`);
+  },
+
+  // Delete video (admin)
+  adminDelete: (filename) => {
+    return api.delete(`/videos/admin/${filename}`);
+  },
+
+  // Get stream URL for a video
+  getStreamUrl: (filename) => {
+    const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+    return `${baseUrl}/api/videos/stream/${filename}`;
+  },
+
+  // Get download URL for a video
+  getDownloadUrl: (filename) => {
+    const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+    return `${baseUrl}/api/videos/download/${filename}`;
+  }
+};
+
+// Safety Score APIs
+export const safetyAPI = {
+  // Get all safety scores for map overlay
+  getAllForMap: (params = {}) => {
+    const { state, minScore, maxScore } = params;
+    return api.get('/safety/all', { 
+      params: { state, minScore, maxScore } 
+    });
+  },
+
+  // Get safety score for specific coordinates
+  getByLocation: (lat, lng) => {
+    return api.get('/safety/location', { 
+      params: { lat, lng } 
+    });
+  },
+
+  // Get safety score by city name
+  getByCity: (name, state = null) => {
+    return api.get('/safety/city', { 
+      params: { name, state } 
+    });
+  },
+
+  // Get nearby safe locations
+  getNearby: (params = {}) => {
+    const { lat, lng, radius = 50, minSafety = 0, limit = 10 } = params;
+    return api.get('/safety/nearby', { 
+      params: { lat, lng, radius, minSafety, limit } 
+    });
+  },
+
+  // Get safety statistics
+  getStats: (state = null) => {
+    return api.get('/safety/stats', { 
+      params: state ? { state } : {} 
+    });
   }
 };
 
