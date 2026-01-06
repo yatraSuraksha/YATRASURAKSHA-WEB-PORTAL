@@ -58,6 +58,11 @@ export const touristAPI = {
 
 // Location & Tracking APIs
 export const trackingAPI = {
+  // Update location for a tourist (used for fake location feature)
+  updateLocation: (data) => {
+    return api.post('/tracking/location/update', data);
+  },
+
   // Get location heatmap data
   getHeatmapData: (params = {}) => {
     return api.get('/tracking/location/heatmap', { params });

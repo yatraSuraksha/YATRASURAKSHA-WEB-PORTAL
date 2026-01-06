@@ -56,6 +56,11 @@ const AzureMap = forwardRef(({
   const [safetyData, setSafetyData] = useState([]);
   const [safetyLoading, setSafetyLoading] = useState(false);
   
+  // Fake location mode state (temporary feature)
+  const [fakeLocationMode, setFakeLocationMode] = useState(false);
+  const [fakeLocationTourist, setFakeLocationTourist] = useState(null);
+  const [fakeLocationCount, setFakeLocationCount] = useState(0);
+  
   // Geofence manager state - ADD THIS LINE
   const [showGeofenceManager, setShowGeofenceManager] = useState(false);
   
@@ -84,6 +89,10 @@ const AzureMap = forwardRef(({
   const historySourceRef = useRef(null);
   const historyLineLayerRef = useRef(null);
   const historyMarkersRef = useRef([]);
+  
+  // Fake location refs (needed for map event listener)
+  const fakeLocationModeRef = useRef(false);
+  const fakeLocationTouristRef = useRef(null);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
@@ -164,7 +173,8 @@ const AzureMap = forwardRef(({
         showFeedbackLink: false,
         showLogo: true,
         // Enable 3D features
-        pitch: 45, // Tilt angle (0-60 degrees)
+        pitch: 45, // Tilt angle (0-85 degrees)
+        maxPitch: 65, // Maximum pitch angle allowed
         bearing: 0, // Rotation angle
         renderWorldCopies: false,
         pitchWithRotate: true // Allow pitch changes when rotating
@@ -173,6 +183,9 @@ const AzureMap = forwardRef(({
       // Wait for map to be ready
       map.events.add('ready', () => {
         console.log('Azure Map is ready');
+        
+        // Add click handler for fake location mode
+        map.events.add('click', handleMapClickForFakeLocation);
 
         // Enable 3D building extrusions
         map.setStyle({
@@ -696,6 +709,61 @@ const AzureMap = forwardRef(({
     `;
   };
 
+  // Handle map click for fake location mode
+  const handleMapClickForFakeLocation = async (e) => {
+    // Use refs to get current state (event listeners don't get updated state)
+    if (!fakeLocationModeRef.current || !fakeLocationTouristRef.current) return;
+    
+    const position = e.position;
+    if (!position) return;
+    
+    const [lng, lat] = position;
+    
+    try {
+      // Use the existing updateLocation API
+      await trackingAPI.updateLocation({
+        touristId: fakeLocationTouristRef.current.id,
+        latitude: lat,
+        longitude: lng,
+        accuracy: 10,
+        speed: Math.random() * 5, // Random speed 0-5 m/s
+        heading: Math.random() * 360,
+        altitude: 0,
+        batteryLevel: 100,
+        source: 'fake_admin'
+      });
+      
+      setFakeLocationCount(prev => prev + 1);
+      console.log('Fake location added:', { lat, lng, touristId: fakeLocationTouristRef.current.id });
+      
+    } catch (err) {
+      console.error('Failed to add fake location:', err);
+      alert('Failed to add fake location: ' + (err.response?.data?.message || err.message));
+    }
+  };
+  
+  // Enable fake location mode for a tourist
+  const enableFakeLocationMode = (tourist) => {
+    setFakeLocationTourist(tourist);
+    setFakeLocationMode(true);
+    setFakeLocationCount(0);
+    setShowTouristPanel(false);
+    setSelectedTourist(null);
+    // Update refs for event listener
+    fakeLocationModeRef.current = true;
+    fakeLocationTouristRef.current = tourist;
+  };
+  
+  // Disable fake location mode
+  const disableFakeLocationMode = () => {
+    setFakeLocationMode(false);
+    setFakeLocationTourist(null);
+    setFakeLocationCount(0);
+    // Update refs for event listener
+    fakeLocationModeRef.current = false;
+    fakeLocationTouristRef.current = null;
+  };
+
   // Handle tourist operations
   const handleViewHistory = async (touristId) => {
     try {
@@ -753,54 +821,52 @@ const AzureMap = forwardRef(({
       { name: 'history-path' }
     ));
     
-    // Create a line layer
+    // Create a line layer with gradient effect to show direction
     const lineLayer = new atlas.layer.LineLayer(dataSource, null, {
       strokeColor: '#1a73e8',
-      strokeWidth: 3,
-      strokeDashArray: [2, 2],
+      strokeWidth: 4,
       lineJoin: 'round',
       lineCap: 'round'
     });
     map.layers.add(lineLayer);
     historyLineLayerRef.current = lineLayer;
     
-    // Create markers for each point
+    // Create markers for each point - dot with arrow for path, larger for start/end
     sortedLocations.forEach((location, index) => {
       const isStart = index === 0;
       const isEnd = index === sortedLocations.length - 1;
       const time = new Date(location.timestamp).toLocaleTimeString();
-      const pointNumber = index + 1;
+      const date = new Date(location.timestamp).toLocaleDateString();
       
-      // Determine marker style
-      let markerColor = '#1a73e8';
-      let markerSize = 20;
-      
-      if (isStart) {
-        markerColor = '#4caf50'; // Green for start
-      } else if (isEnd) {
-        markerColor = '#f44336'; // Red for end
+      // Calculate direction angle towards next point
+      let angle = 0;
+      if (index < sortedLocations.length - 1) {
+        const nextLoc = sortedLocations[index + 1];
+        const lat1 = location.latitude * Math.PI / 180;
+        const lat2 = nextLoc.latitude * Math.PI / 180;
+        const deltaLng = (nextLoc.longitude - location.longitude) * Math.PI / 180;
+        const y = Math.sin(deltaLng) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+        angle = Math.atan2(y, x) * 180 / Math.PI;
       }
       
-      // Create HTML marker with number
-      const markerHtml = `
-        <div style="
-          width: ${markerSize}px;
-          height: ${markerSize}px;
-          background: ${markerColor};
-          border: 2px solid white;
-          border-radius: 50%;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 10px;
-          font-weight: bold;
-          cursor: pointer;
-        " title="${pointNumber}. ${time}${isStart ? ' (Start)' : isEnd ? ' (Current)' : ''}">
-          ${pointNumber}
-        </div>
-      `;
+      // Determine marker style
+      let markerHtml;
+      
+      if (isStart) {
+        // Start marker - green with flag icon
+        markerHtml = '<div style="width: 28px; height: 28px; background: #4caf50; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 10px rgba(76,175,80,0.5); display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Start - ' + date + ' ' + time + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></div>';
+      } else if (isEnd) {
+        // End marker - red with pulsing effect and pin icon
+        markerHtml = '<div style="position: relative;"><div style="width: 28px; height: 28px; background: #f44336; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 10px rgba(244,67,54,0.5); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; position: relative;" title="Current - ' + date + ' ' + time + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div><div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 28px; height: 28px; background: #f44336; border-radius: 50%; animation: pulse-ring 1.5s ease-out infinite; z-index: 1;"></div></div><style>@keyframes pulse-ring { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; } 100% { transform: translate(-50%, -50%) scale(2); opacity: 0; } }</style>';
+      } else {
+        // Path marker - dot with arrow showing direction (white arrow with dark outline for visibility)
+        markerHtml = '<div style="position: relative; width: 28px; height: 28px; cursor: pointer;" title="' + time + '">' +
+          '<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; background: #1a73e8; border: 2px solid white; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,0.3); z-index: 2;"></div>' +
+          '<div style="position: absolute; top: -2px; left: 50%; transform: translateX(-50%) rotate(' + angle + 'deg); transform-origin: center 16px; z-index: 1;">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24"><path d="M12 2l-6 10h12l-6-10z" fill="white" stroke="#1a73e8" stroke-width="2.5"/></svg>' +
+          '</div></div>';
+      }
       
       const marker = new atlas.HtmlMarker({
         position: [location.longitude, location.latitude],
@@ -815,20 +881,7 @@ const AzureMap = forwardRef(({
       map.events.add('click', marker, () => {
         const popup = new atlas.Popup({
           position: [location.longitude, location.latitude],
-          content: `
-            <div style="padding: 10px; font-family: system-ui;">
-              <strong>${touristName}</strong><br/>
-              <small style="color: #666;">Point ${index + 1}${isStart ? ' (Start)' : isEnd ? ' (Current)' : ''}</small>
-              <hr style="margin: 8px 0; border: none; border-top: 1px solid #eee;"/>
-              <div style="font-size: 12px;">
-                <div>🕐 ${new Date(location.timestamp).toLocaleString()}</div>
-                <div>📍 ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}</div>
-                ${location.speed ? `<div>🚗 ${location.speed} m/s</div>` : ''}
-                ${location.altitude ? `<div>⛰️ ${location.altitude}m</div>` : ''}
-                ${location.batteryLevel ? `<div>🔋 ${location.batteryLevel}%</div>` : ''}
-              </div>
-            </div>
-          `,
+          content: '<div style="padding: 10px; font-family: system-ui;"><strong>' + touristName + '</strong><br/><small style="color: #666;">' + (isStart ? 'Start Point' : isEnd ? 'Current Location' : 'Location') + '</small><hr style="margin: 8px 0; border: none; border-top: 1px solid #eee;"/><div style="font-size: 12px;"><div>🕐 ' + new Date(location.timestamp).toLocaleString() + '</div><div>📍 ' + location.latitude.toFixed(6) + ', ' + location.longitude.toFixed(6) + '</div>' + (location.speed ? '<div>🚗 ' + location.speed.toFixed(1) + ' m/s</div>' : '') + (location.heading ? '<div>🧭 ' + location.heading.toFixed(0) + '°</div>' : '') + (location.altitude ? '<div>⛰️ ' + location.altitude + 'm</div>' : '') + (location.batteryLevel ? '<div>🔋 ' + location.batteryLevel + '%</div>' : '') + '</div></div>',
           pixelOffset: [0, -10]
         });
         popup.open(map);
@@ -1438,31 +1491,104 @@ const AzureMap = forwardRef(({
               </p>
             </div>
 
-            {/* Action Button - History only */}
-            <button
-              onClick={() => handleViewHistory(selectedTourist.id)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '6px',
-                border: 'none',
-                background: '#1a73e8',
-                color: 'white',
-                fontWeight: '600',
-                fontSize: '12px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                transition: 'background 0.2s'
-              }}
-            >
-              📍 View Location History
-            </button>
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                onClick={() => handleViewHistory(selectedTourist.id)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: '#1a73e8',
+                  color: 'white',
+                  fontWeight: '600',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'background 0.2s'
+                }}
+              >
+                📍 View Location History
+              </button>
+              
+              {/* Fake Location Button - Temporary Feature */}
+              <button
+                onClick={() => enableFakeLocationMode(selectedTourist)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '2px dashed #ff9800',
+                  background: '#fff3e0',
+                  color: '#e65100',
+                  fontWeight: '600',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🎯 Add Fake Locations (Dev)
+              </button>
+            </div>
           </div>
         </div>
       </>
+      )}
+      
+      {/* Fake Location Mode Indicator */}
+      {fakeLocationMode && fakeLocationTourist && (
+        <div style={{
+          position: 'absolute',
+          top: '16px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'linear-gradient(135deg, #ff9800, #f57c00)',
+          color: 'white',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 20px rgba(255, 152, 0, 0.4)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          animation: 'pulse 2s infinite'
+        }}>
+          <div>
+            <div style={{ fontWeight: '700', fontSize: '14px' }}>
+              🎯 Fake Location Mode Active
+            </div>
+            <div style={{ fontSize: '12px', opacity: 0.9 }}>
+              Click on map to add locations for: <strong>{fakeLocationTourist.name}</strong>
+            </div>
+            <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>
+              Locations added: {fakeLocationCount}
+            </div>
+          </div>
+          <button
+            onClick={disableFakeLocationMode}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              fontWeight: '600',
+              fontSize: '12px',
+              cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+          >
+            ✕ Stop
+          </button>
+        </div>
       )}
     </div>
   );
