@@ -204,7 +204,7 @@ const Analytics = () => (
 // Main App Component
 const App = () => {
   return (
-    <Router>
+    <Router basename="/YATRA-SURAKSHA-ADMIN-PORTAL">
       <div className="admin-portal">
         <Sidebar />
         <main className="main-content">
