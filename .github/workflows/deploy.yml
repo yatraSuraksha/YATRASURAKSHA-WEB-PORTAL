@@ -32,13 +32,43 @@ jobs:
         run: npm ci
 
       - name: Validate required secrets
+        id: validate
         run: |
           set -euo pipefail
-          missing="false"
-          [ -n "${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}" ] || missing="true" && echo "VITE_GOOGLE_MAPS_API_KEY missing"
-          [ -n "${{ secrets.VITE_AZURE_MAPS_API_KEY }}" ] || missing="true" && echo "VITE_AZURE_MAPS_API_KEY missing"
+          missing=false
+
+          # Check Google Maps key
+          if [ -n "${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}" ]; then
+            echo "google_key_set=true" >> $GITHUB_OUTPUT
+          else
+            echo "VITE_GOOGLE_MAPS_API_KEY missing"
+            missing=true
+          fi
+
+          # Accept either VITE_AZURE_MAPS_KEY or VITE_AZURE_MAPS_API_KEY and surface as output
+          if [ -n "${{ secrets.VITE_AZURE_MAPS_KEY }}" ]; then
+            echo "azure_key=${{ secrets.VITE_AZURE_MAPS_KEY }}" >> $GITHUB_OUTPUT
+            echo "azure_key_source=VITE_AZURE_MAPS_KEY" >> $GITHUB_OUTPUT
+          elif [ -n "${{ secrets.VITE_AZURE_MAPS_API_KEY }}" ]; then
+            echo "azure_key=${{ secrets.VITE_AZURE_MAPS_API_KEY }}" >> $GITHUB_OUTPUT
+            echo "azure_key_source=VITE_AZURE_MAPS_API_KEY" >> $GITHUB_OUTPUT
+          else
+            echo "VITE_AZURE_MAPS_KEY / VITE_AZURE_MAPS_API_KEY missing"
+            missing=true
+          fi
+
+          # Check other backend keys
+          if [ -z "${{ secrets.VITE_API_BASE_URL }}" ]; then
+            echo "VITE_API_BASE_URL missing"
+            missing=true
+          fi
+          if [ -z "${{ secrets.VITE_BACKEND_URL }}" ]; then
+            echo "VITE_BACKEND_URL missing"
+            missing=true
+          fi
+
           if [ "$missing" = "true" ]; then
-            echo "One or more required secrets are missing. Make sure to add repository secrets: VITE_GOOGLE_MAPS_API_KEY, VITE_AZURE_MAPS_API_KEY, VITE_API_BASE_URL, VITE_BACKEND_URL"
+            echo "One or more required secrets are missing. Add repository secrets: VITE_GOOGLE_MAPS_API_KEY, VITE_AZURE_MAPS_KEY (or VITE_AZURE_MAPS_API_KEY), VITE_API_BASE_URL, VITE_BACKEND_URL"
             exit 1
           fi
 
