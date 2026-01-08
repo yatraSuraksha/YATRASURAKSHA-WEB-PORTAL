@@ -31,13 +31,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          missing="false"
+          [ -n "${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}" ] || missing="true" && echo "VITE_GOOGLE_MAPS_API_KEY missing"
+          [ -n "${{ secrets.VITE_AZURE_MAPS_API_KEY }}" ] || missing="true" && echo "VITE_AZURE_MAPS_API_KEY missing"
+          if [ "$missing" = "true" ]; then
+            echo "One or more required secrets are missing. Make sure to add repository secrets: VITE_GOOGLE_MAPS_API_KEY, VITE_AZURE_MAPS_API_KEY, VITE_API_BASE_URL, VITE_BACKEND_URL"
+            exit 1
+          fi
+
       - name: Build project
         run: npm run build
         env:
           VITE_BASE_URL: /${{ github.event.repository.name }}/
           # Map and backend keys - set these in Repository Settings -> Secrets
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
-          VITE_AZURE_MAPS_KEY: ${{ secrets.VITE_AZURE_MAPS_KEY }}
+          VITE_AZURE_MAPS_API_KEY: ${{ secrets.VITE_AZURE_MAPS_API_KEY }}
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
 
