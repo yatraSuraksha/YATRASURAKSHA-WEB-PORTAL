@@ -34,12 +34,7 @@ jobs:
       - name: Build project
         run: npm run build
         env:
-          NODE_ENV: production
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
-          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
-          VITE_AZURE_MAPS_KEY: ${{ secrets.VITE_AZURE_MAPS_KEY }}
-          VITE_NODE_ENV: production
+          VITE_BASE_URL: /${{ github.event.repository.name }}/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
