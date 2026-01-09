@@ -1102,7 +1102,7 @@ const AzureMap = forwardRef(({
       {isLoading && (
         <div className="loading">
           <div className="spinner"></div>
-          <span>Loading Azure Maps...</span>
+          <span>Loading Maps...</span>
         </div>
       )}
       
